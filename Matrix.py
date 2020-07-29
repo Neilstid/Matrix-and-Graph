@@ -3,6 +3,8 @@ import subprocess
 import os
 import platform
 import random
+from bs4 import BeautifulSoup
+import math
 
 
 class Matrix:
@@ -23,8 +25,6 @@ class Matrix:
         Neil FARMER
     """
 
-    # Constructor_____________
-
     def __init__(self, path=""):
         """
         The constructor for Matrix class.
@@ -35,8 +35,6 @@ class Matrix:
         self.matrix_value = []
         if path != "":
             self.new_matrix(path)
-
-    # convert list -> Matrix_____________
 
     def list_2dimension_convert(self, lst):
         """
@@ -73,7 +71,6 @@ class Matrix:
             new_line = list(map(int, str(line.replace("\n", "")).split(" ")))
             self.matrix_value.append(new_line)
 
-    # operation_____________
     def __str__(self):
         """
         The function to convert n list into a Matrix
@@ -290,7 +287,6 @@ class Matrix:
 
         return True
 
-    # Calcul for matrix_____________
     def transpose(self):
         """
         The function to transpose n list into a Matrix
@@ -599,6 +595,7 @@ class Graph:
     Creator:
         Neil FARMER
     """
+
     def __init__(self, matrix, path="matrix_svg.html"):
         """
         The function to print a Graph
@@ -636,6 +633,50 @@ class Graph:
         """
         other_graph.graph_matrix = self.graph_matrix
 
+    def svg_to_graph(self, link):
+        with open(link, 'r') as f:
+            data = f.read()
+
+        graph_SVG = BeautifulSoup(data, 'html.parser')
+        svg_part = graph_SVG.svg
+        matrix_size = len(svg_part.find_all("circle"))
+        matrix_2d_array = [[0 for i in range(matrix_size)] for j in range(matrix_size)]
+
+        non_oriented_edge = svg_part.find_all("line")
+        for e in non_oriented_edge:
+            if e.get("id")[0] != "n":
+                print("Error : An non-oriented edge has an error. It will not be in the matrix : \n" + str(e))
+                continue
+
+            vertex = e.get("id")[2:].split("-")
+            if int(vertex[0]) < matrix_size and int(vertex[1]) < matrix_size:
+                weight = svg_part.find('text', {'id': e.get("id")}).get_text()
+                if weight is None:
+                    weight = 1
+                matrix_2d_array[int(vertex[0])][int(vertex[1])] = weight
+                matrix_2d_array[int(vertex[1])][int(vertex[0])] = weight
+
+        oriented_edge = svg_part.find_all("path")
+        for e in oriented_edge:
+            if e.get("id") is None:
+                continue
+            elif e.get("id")[0] != "o":
+                print("Error : An non-oriented edge has an error. It will not be in the matrix : \n" + str(e))
+                continue
+
+            vertex = e.get("id")[2:].split("-")
+            if int(vertex[0]) < matrix_size and int(vertex[1]) < matrix_size:
+                weight = svg_part.find('textpath', {'id': e.get("id")}).get_text()
+                if weight is None:
+                    weight = 1
+                matrix_2d_array[int(vertex[0])][int(vertex[1])] = weight
+
+        m_final = Matrix()
+        m_final.list_2dimension_convert(matrix_2d_array)
+        self.graph_matrix = m_final
+
+        f.close()
+
     def print_to_file(self, x_position=[], y_position=[], name=[], color=[], size=[]):
         """
         The function to update the graph svg in file
@@ -649,11 +690,35 @@ class Graph:
         """
         self.path_file_graph.clear("")
         size_matrix = self.graph_matrix.__len__()
-        if len(x_position) == 0:
-            x_position = [x * 60 * ((-1) ** x) + 500 + random.randrange(-30, 30) for x in range(0, size_matrix[0])]
-            print(-1 ** 2)
-        if len(y_position) == 0:
-            y_position = [x * 90 + 30 + random.randrange(-40, 40) for x in range(0, size_matrix[0])]
+        if len(x_position) == 0 and len(y_position) == 0:
+            x_position = [0] * size_matrix[0]
+            y_position = [0] * size_matrix[0]
+            d = self.degree_of_vertex()
+            circle_r = []
+            if d.count(max(d)) == 1:
+                x_position[d.index(max(d))] = 500
+                y_position[d.index(max(d))] = 500
+                circle_r.append(0)
+                d[d.index(max(d))] = -sys.maxsize - 1
+            else:
+                circle_r.append(d.count(max(d))*50)
+
+            nb_distinct = len(set(d))
+            for circle_num in range(1, nb_distinct):
+                circle_r.append(int((500 - circle_r[0]) / nb_distinct) * circle_num + circle_r[0])
+
+            for c in circle_r:
+                print(c)
+                if c == 0:
+                    continue
+
+                nb_value = d.count(max(d))
+                for value in range(0, nb_value):
+                    angle = d.index(max(d)) / len(d) * 360
+                    x_position[d.index(max(d))] = int(c * math.cos(angle*math.pi/180)) + 500
+                    y_position[d.index(max(d))] = int(c * math.sin(angle*math.pi/180)) + 500
+                    d[d.index(max(d))] = -sys.maxsize - 1
+
         if len(name) == 0:
             name = [chr(x + 65) for x in range(0, size_matrix[0])]
         if len(color) == 0:
@@ -662,8 +727,8 @@ class Graph:
             size = [5 for x in range(0, size_matrix[0])]
 
         for vertex in range(0, size_matrix[0]):
-            self.path_file_graph.print_vertex(x_position[vertex], y_position[vertex], name[vertex], color[vertex],
-                                              size[vertex])
+            self.path_file_graph.print_vertex(x_position[vertex], y_position[vertex], vertex, name[vertex],
+                                              color[vertex], size[vertex])
 
         for row in range(0, size_matrix[0]):
             for value in range(0, size_matrix[0]):
@@ -678,12 +743,14 @@ class Graph:
                 if self.graph_matrix.matrix_value[row][value] == self.graph_matrix.matrix_value[value][row] \
                         and row > value:
                     self.path_file_graph.print_non_oriented_edge(x_position[row], y_position[row],
-                                                                 x_position[value], y_position[value], edge_color, 5,
+                                                                 x_position[value], y_position[value],
+                                                                 str(row) + "-" + str(value), edge_color, 5,
                                                                  self.graph_matrix.matrix_value[row][value])
                 elif self.graph_matrix.matrix_value[row][value] != self.graph_matrix.matrix_value[value][row]:
                     self.path_file_graph.print_oriented_ege(x_position[row], y_position[row],
-                                                            x_position[value], y_position[value], edge_color, 5,
-                                                            self.graph_matrix.matrix_value[row][value])
+                                                            x_position[value], y_position[value],
+                                                            str(row) + "-" + str(value),
+                                                            edge_color, 5, self.graph_matrix.matrix_value[row][value])
 
     def add_vertex(self, link_departure, link_arrival):
         """
@@ -1124,6 +1191,7 @@ class Tsp(Graph):
     Creator:
         Neil FARMER
     """
+
     def __init__(self, matrix, hamiltonian_cycle=[], path="matrix_svg.html"):
         self.graph_matrix = matrix
         self.path_file_graph = SvgWriterGraph(path, "")
@@ -1165,7 +1233,7 @@ class Tsp(Graph):
                 edge_color[self.cycle[(col + 1) % len(self.cycle)]][self.cycle[col]] = "red"
 
         for vertex in range(0, size_matrix[0]):
-            self.path_file_graph.print_vertex(x_position[vertex], y_position[vertex], name[vertex], color[vertex],
+            self.path_file_graph.print_vertex(x_position[vertex], y_position[vertex], vertex, name[vertex], color[vertex],
                                               size[vertex])
 
         for row in range(0, size_matrix[0]):
@@ -1177,11 +1245,13 @@ class Tsp(Graph):
                         and row < value:
                     self.path_file_graph.print_non_oriented_edge(x_position[row], y_position[row],
                                                                  x_position[value], y_position[value],
+                                                                 str(row) + "-" + str(value),
                                                                  edge_color[row][value], 5,
                                                                  self.graph_matrix.matrix_value[row][value])
                 elif self.graph_matrix.matrix_value[row][value] != self.graph_matrix.matrix_value[value][row]:
                     self.path_file_graph.print_oriented_ege(x_position[row], y_position[row],
                                                             x_position[value], y_position[value],
+                                                            str(row) + "-" + str(value),
                                                             edge_color[row][value], 5,
                                                             self.graph_matrix.matrix_value[row][value])
 
@@ -1376,38 +1446,44 @@ class SvgWriterGraph(SvgWriter):
         Neil FARMER
     """
 
-    def print_vertex(self, x_position, y_position, name="", color="Black", size=5):
-        self.add_element("<circle cx=\"" + str(x_position) + "\" cy=\"" + str(y_position)
+    def print_vertex(self, x_position, y_position, key, name="", color="Black", size=5):
+
+        self.add_element("<circle id=\"" + str(key) + "\" cx=\"" + str(x_position) + "\" cy=\"" + str(y_position)
                          + "\" r=\"" + str(size) + "\" fill=\"" + str(color) + "\" />")
         if str(name) != "":
-            self.add_element("<text x=\"" + str(x_position - size)
+            self.add_element("<text id=\"" + str(key) + "\" x=\"" + str(x_position - size)
                              + "\" y=\"" + str(y_position - size * 2) + "\" fill = \""
-                             + str(color) + "\" + font-size=\"" + str(20) + "px\">" + str(name) + "</text>")
+                             + str(color) + "\" font-size=\"" + str(20) + "px\">" + str(name) + "</text>")
 
-    def print_oriented_ege(self, x_position_first, y_position_first, x_position_second, y_position_second,
+    def print_oriented_ege(self, x_position_first, y_position_first, x_position_second, y_position_second, key,
                            colour="Black", size=5, weigh=""):
-        id_edge = "MyId" + str(self.id)
-        self.id = self.id + 1
-        self.add_element("<path id = \"" + id_edge + "\" marker-end=\"url(#arrow)\" stroke-width=\"" + str(size) + "\" fill=\"none\" \
+
+        self.add_element(
+            "<path id = \"" + "o-" + str(key) + "\" marker-end=\"url(#arrow)\" stroke-width=\"" + str(size) + "\" fill=\"none\" \
         stroke=\"" + str(colour) + "\" d=\"M " + str(x_position_first) + " " + str(y_position_first) + "q" +
-                         str(int((x_position_second - x_position_first) * 2)) + " "
-                         + str(int((y_position_second - y_position_first) / 2)) + " "
-                         + str(x_position_second - x_position_first) + " " +
-                         str(y_position_second - y_position_first) + "\"/>")
-        self.add_element("<text><textPath href=\"#" + str(id_edge) +
-                         "\" startOffset=\"50%\" text-anchor=\"middle\" style=\"font-size: 24px;\">" + str(weigh) +
+            str(int((x_position_second - x_position_first) * 2)) + " "
+            + str(int((y_position_second - y_position_first) / 2)) + " "
+            + str(x_position_second - x_position_first) + " " +
+            str(y_position_second - y_position_first) + "\"/>")
+        self.add_element("<text><textPath href=\"#" + "o-" + str(key) + "\" id=\"o-" + str(key) + "\"" +
+                         " startOffset=\"50%\" text-anchor=\"middle\" style=\"font-size: 24px;\">" + str(weigh) +
                          "</textPath></text>")
 
-    def print_non_oriented_edge(self, x_position_first, y_position_first, x_position_second, y_position_second,
+    def print_non_oriented_edge(self, x_position_first, y_position_first, x_position_second, y_position_second, key,
                                 colour="Black", size=5, weigh=""):
-        self.add_element("<line x1=\"" + str(x_position_first) + "\" y1=\"" + str(y_position_first)
-                         + "\" x2=\"" + str(x_position_second) + "\" y2=\"" + str(y_position_second)
-                         + "\" style=\"stroke:" + str(colour) + ";stroke-width:" + str(size) + "\" />")
+        self.add_element(
+            "<line id = \"" + "n-" + str(key) + "\" x1=\"" + str(x_position_first) + "\" y1=\"" + str(y_position_first)
+            + "\" x2=\"" + str(x_position_second) + "\" y2=\"" + str(y_position_second)
+            + "\" style=\"stroke:" + str(colour) + ";stroke-width:" + str(size) + "\" />")
         if str(weigh) != "":
             val_x = [x for x in range(sorted([x_position_first, x_position_second])[0],
-                                      sorted([x_position_first, x_position_second])[1])]
+                                      sorted([x_position_first, x_position_second])[1]+1)]
             val_y = [y for y in range(sorted([y_position_first, y_position_second])[0],
-                                      sorted([y_position_first, y_position_second])[1])]
-            self.add_element("<text x=\"" + str(val_x[int(len(val_x) / 2)] + size)
+                                      sorted([y_position_first, y_position_second])[1]+1)]
+            self.add_element("<text id = \"" + "n-" + str(key) + "\" x=\"" + str(val_x[int(len(val_x) / 2)] + size)
                              + "\" y=\"" + str(val_y[int(len(val_y) / 2)] + size) + "\" fill = \""
                              + str(colour) + "\" + font-size=\"" + str(20) + "px\">" + str(weigh) + "</text>")
+
+
+if __name__ == '__main__':
+    pass
